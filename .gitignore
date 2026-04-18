@@ -1,0 +1,8 @@
+/target
+config.toml
+.agents/
+.codex
+AGENTS.md
+CONFIGURATION.md
+IMPLEMENTATION_SUMMARY.md
+verify_config.sh
