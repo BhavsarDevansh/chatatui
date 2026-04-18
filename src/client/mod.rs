@@ -65,7 +65,7 @@ impl ChatClient {
 
     pub async fn send_chat_message(
         &self,
-        history: Vec<(String, String)>,
+        history: Vec<Value>,
         tools: Vec<Value>,
         tx: mpsc::Sender<crate::app::AsyncEvent>,
     ) {
@@ -80,15 +80,7 @@ impl ChatClient {
                 format!("{}/v1/chat/completions", api_url)
             };
 
-            let messages: Vec<_> = history
-                .into_iter()
-                .map(|(role, content)| {
-                    json!({
-                        "role": role,
-                        "content": content
-                    })
-                })
-                .collect();
+            let messages = history;
 
             let mut request_body = json!({
                 "model": model,

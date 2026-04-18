@@ -2,7 +2,7 @@ use crate::client::ChatClient;
 use crate::mcp::McpTool;
 use ratatui::widgets::ListState;
 use tokio::sync::mpsc;
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[derive(Debug)]
 pub enum AsyncEvent {
@@ -208,28 +208,61 @@ impl AppState {
             false,
         ));
 
-        let history: Vec<(String, String)> = self
+        let history: Vec<Value> = self
             .current_thread()
             .messages
             .iter()
             .filter(|(role, _, _)| role == "User" || role == "Assistant" || role == "Tool" || role == "AssistantToolCall")
-            .map(|(role, content, _)| {
-                let (api_role, api_content) = match role.as_str() {
-                    "User" => ("user".to_string(), content.clone()),
-                    "Assistant" => ("assistant".to_string(), content.clone()),
-                    "AssistantToolCall" => ("assistant".to_string(), content.clone()),
-                    "Tool" => {
-                        // Parse "id||name||content" format
-                        let parts: Vec<&str> = content.splitn(3, "||").collect();
-                        if parts.len() == 3 {
-                            ("tool".to_string(), parts[2].to_string())
+            .filter_map(|(role, content, _)| {
+                match role.as_str() {
+                    "User" => Some(json!({
+                        "role": "user",
+                        "content": content
+                    })),
+                    "Assistant" => Some(json!({
+                        "role": "assistant",
+                        "content": content
+                    })),
+                    "AssistantToolCall" => {
+                        if let Ok(tool_call_json) = serde_json::from_str::<Value>(content) {
+                            if let Some(tool_calls_arr) = tool_call_json.get("tool_calls").and_then(|v| v.as_array()) {
+                                let fixed_tool_calls: Vec<Value> = tool_calls_arr.iter().map(|tc| {
+                                    let mut tc = tc.clone();
+                                    if let Some(func) = tc.get_mut("function") {
+                                        if let Some(args) = func.get("arguments") {
+                                            if args.is_object() {
+                                                func["arguments"] = Value::String(args.to_string());
+                                            }
+                                        }
+                                    }
+                                    tc
+                                }).collect();
+                                Some(json!({
+                                    "role": "assistant",
+                                    "content": Value::Null,
+                                    "tool_calls": fixed_tool_calls
+                                }))
+                            } else {
+                                None
+                            }
                         } else {
-                            ("tool".to_string(), content.clone())
+                            None
                         }
                     }
-                    _ => ("user".to_string(), content.clone()),
-                };
-                (api_role, api_content)
+                    "Tool" => {
+                        let parts: Vec<&str> = content.splitn(3, "||").collect();
+                        if parts.len() == 3 {
+                            Some(json!({
+                                "role": "tool",
+                                "tool_call_id": parts[0],
+                                "content": parts[2]
+                            }))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
             })
             .collect();
 
@@ -268,27 +301,61 @@ impl AppState {
             false,
         ));
 
-        let history: Vec<(String, String)> = self
+        let history: Vec<Value> = self
             .current_thread()
             .messages
             .iter()
             .filter(|(role, _, _)| role == "User" || role == "Assistant" || role == "Tool" || role == "AssistantToolCall")
-            .map(|(role, content, _)| {
-                let (api_role, api_content) = match role.as_str() {
-                    "User" => ("user".to_string(), content.clone()),
-                    "Assistant" => ("assistant".to_string(), content.clone()),
-                    "AssistantToolCall" => ("assistant".to_string(), content.clone()),
+            .filter_map(|(role, content, _)| {
+                match role.as_str() {
+                    "User" => Some(json!({
+                        "role": "user",
+                        "content": content
+                    })),
+                    "Assistant" => Some(json!({
+                        "role": "assistant",
+                        "content": content
+                    })),
+                    "AssistantToolCall" => {
+                        if let Ok(tool_call_json) = serde_json::from_str::<Value>(content) {
+                            if let Some(tool_calls_arr) = tool_call_json.get("tool_calls").and_then(|v| v.as_array()) {
+                                let fixed_tool_calls: Vec<Value> = tool_calls_arr.iter().map(|tc| {
+                                    let mut tc = tc.clone();
+                                    if let Some(func) = tc.get_mut("function") {
+                                        if let Some(args) = func.get("arguments") {
+                                            if args.is_object() {
+                                                func["arguments"] = Value::String(args.to_string());
+                                            }
+                                        }
+                                    }
+                                    tc
+                                }).collect();
+                                Some(json!({
+                                    "role": "assistant",
+                                    "content": Value::Null,
+                                    "tool_calls": fixed_tool_calls
+                                }))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
                     "Tool" => {
                         let parts: Vec<&str> = content.splitn(3, "||").collect();
                         if parts.len() == 3 {
-                            ("tool".to_string(), parts[2].to_string())
+                            Some(json!({
+                                "role": "tool",
+                                "tool_call_id": parts[0],
+                                "content": parts[2]
+                            }))
                         } else {
-                            ("tool".to_string(), content.clone())
+                            None
                         }
                     }
-                    _ => ("user".to_string(), content.clone()),
-                };
-                (api_role, api_content)
+                    _ => None,
+                }
             })
             .collect();
 
@@ -577,6 +644,7 @@ impl AppState {
             Ok(mut clipboard) => {
                 match clipboard.set_text(content_to_copy) {
                     Ok(_) => {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
                         self.current_thread().messages.push((
                             "System".to_string(),
                             "Copied to clipboard.".to_string(),
